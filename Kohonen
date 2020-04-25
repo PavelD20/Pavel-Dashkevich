@@ -1,0 +1,38 @@
+install.packages("boot")
+library('boot')
+data('channing')
+str(channing)
+head(channing)
+#View(channing)
+baz_1 <- channing[,-1]
+baz_1
+set.seed(1)
+
+install.packages('kohonen')
+library('kohonen')
+som.baz_1 <- som(scale(baz_1), grid=somgrid(5,5,'hexagonal'))
+som.baz_1
+dim(getCodes(som.baz_1))
+plot(som.baz_1,main = 'Channing House Data Kohonen')
+plot(som.baz_1, type= 'changes', main='Changes')
+
+train <- sample(nrow(baz_1), 360)
+X_train <- scale(baz_1[train,])
+x_test <- scale(baz_1[-train,], 
+                center = attr(X_train,'scaled:center'),
+                scale = attr(X_train,'scaled:center'))
+train_data <- list(measurements = X_train,
+                   sex = channing$sex[train])
+test_data <- list(measurements = x_test,     
+                   sex = channing$sex[-train])
+
+som.grid <- somgrid(5,5,'hexagonal')
+som.baz_1 <- supersom(train_data, grid = som.grid)
+plot(som.baz_1)
+
+som_predict <- predict(som.baz_1, newdata = test_data)
+table(channing$sex[-train], som_predict$predictions$sex[['channing$sex']])
+
+som.baz_1
+classif <- data.frame(sex = channing$sex[train], class = som.baz_1[["unit.classif"]])
+classif
