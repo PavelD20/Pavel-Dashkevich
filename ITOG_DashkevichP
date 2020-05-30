@@ -1,0 +1,427 @@
+### ИТОГОВАЯ РАБОТА ###
+# Дашкевич П , Э-1941
+
+# Установим и подключеним библиотеки
+
+install.packages('BatchGetSymbols')
+install.packages('plotly')
+install.packages('keras')
+install.packages('tensorflow')
+install.packages('minimax')
+
+library('minimax')
+library('BatchGetSymbols')
+library('keras')
+library('plotly')
+library('tensorflow')
+#Загружаем значения индекса BSE Sensex (BSESN) - взвешенный по рыночной стоимости фондовый индекс 
+#30 хорошо зарекомендовавших себя и финансово надежных компаний, котирующихся на Бомбейской фондовой бирже
+# 1200 наблюдений
+
+tickers <- c('%5EBSESN')
+first.date <- Sys.Date() - 360*5
+last.date <- Sys.Date()
+
+yts <- BatchGetSymbols(tickers = tickers,
+                       first.date = first.date,
+                       last.date = last.date,
+                       cache.folder = file.path(tempdir(),
+                                                'BGS_Cache'))
+# Подготовка данных
+myts <-  data.frame(index = yts$df.tickers$ref.date, price = yts$df.tickers$price.close, vol = yts$df.tickers$volume)
+myts <-  myts[complete.cases(myts), ]
+myts <-  myts[-seq(nrow(myts) - 1200), ]
+myts$index <-  seq(nrow(myts))
+
+# График
+plot_ly(myts, x = ~index, y = ~price, type = "scatter", mode = "markers", color = ~vol)
+
+# Стандартизация
+msd.price <-  c(mean(myts$price), sd(myts$price))
+msd.vol <-  c(mean(myts$vol), sd(myts$vol))
+myts$price <-  (myts$price - msd.price[1])/msd.price[2]
+myts$vol <-  (myts$vol - msd.vol[1])/msd.vol[2]
+summary(myts)
+
+# Деление на тестовую и тренировочную
+datalags = 10
+batch.size = 125
+epochs = 10
+validation_split = 0.25
+
+train <-  myts[seq(1000 + datalags), ]
+test <-  myts[1000 + datalags + seq(200 + datalags), ]
+
+# Создание массивов
+x.train <-  array(data = lag(cbind(train$price, train$vol), datalags)[-(1:datalags), ], dim = c(nrow(train) - datalags, datalags, 2))
+y.train = array(data = train$price[-(1:datalags)], dim = c(nrow(train)-datalags, 1))
+
+x.test <-  array(data = lag(cbind(test$vol, test$price), datalags)[-(1:datalags), ], dim = c(nrow(test) - datalags, datalags, 2))
+y.test <-  array(data = test$price[-(1:datalags)], dim = c(nrow(test) - datalags, 1))
+
+dim(x.train)
+dim(y.train)
+
+
+# автокорреляционная функция
+acf(myts$price, lag.max = 1200)
+
+
+###### LSTM  ######
+
+model <- keras_model_sequential()  %>%
+  layer_lstm(units = 100,
+             input_shape = c(datalags, 2),
+             batch_size = batch.size,
+             return_sequences = TRUE,
+             stateful = TRUE) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_lstm(units = 50,
+             return_sequences = FALSE,
+             stateful = TRUE) %>%
+  layer_dropout(rate = 0.5) %>%
+  layer_dense(units = 1) 
+
+
+# activation: 'sigmoid', 'relu',
+# optimizer: 'rmsprop', 'adam'
+# loss = 'MSE', 'MAE', 'MAPE'
+
+
+##### LSTM_1 adam, mse
+model_1 <- model %>% compile(optimizer = 'adam',loss = 'mse')
+model_1 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_1_adam_mse = 0.0563
+  
+##### LSTM_2 adam, mae
+model_2 <- model %>% compile(optimizer = 'adam',loss = 'mae')
+model_2 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_2_adam_mae = 0.1699
+  
+##### LSTM_3 adam, mape
+model_3 <- model %>% compile(optimizer = 'adam',loss = 'mape')
+model_3 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_3_adam_mape = 36.2690
+  
+##### LSTM_4 rmsprop, mse 
+model_4 <- model %>% compile(optimizer = 'rmsprop',loss = 'mse')
+model_4 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_4_rmsprop_mse = 0.0495
+  
+##### LSTM_5 rmsprop, mae
+model_5 <- model %>% compile(optimizer = 'rmsprop',loss = 'mae')
+model_5 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_5_rmsprop_mae = 0.1719
+  
+##### LSTM_6 rmsprop, mape
+model_6 <- model %>% compile(optimizer = 'rmsprop',loss = 'mape')
+model_6 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+LSTM_6_rmsprop_mape = 40.115
+  
+
+#ПОДГОТОВКА ДАННЫХ ДЛЯ RNN И SМ
+# Исходные данные уже загружены под  переменной myts
+
+# Стандартизация методом мини-макс
+myts_MX <- data.frame(index = rminimax(myts$index), price = rminimax(myts$price), vol= rminimax(myts$vol))
+myts_MX
+
+# Деление на тестовую и тренировочную
+datalags = datalags
+batch_size = batch.size
+epochs = epochs
+validation_split = validation_split
+
+train_MX <-  myts_MX[seq(1000 + datalags), ]
+test_MX <-  myts_MX[1000 + datalags + seq(200 + datalags), ]
+
+# Создание массивов
+x.train_MX <-  array(data = lag(cbind(train_MX$price, train_MX$vol), datalags)[-(1:datalags), ], dim = c(nrow(train_MX) - datalags, datalags))
+y.train_MX <-  array(data = train_MX$price[-(1:datalags)], dim = c(nrow(train_MX)-datalags))
+
+x.test_MX <-  array(data = lag(cbind(test_MX$vol, test_MX$price), datalags)[-(1:datalags), ], dim = c(nrow(test_MX) - datalags, datalags))
+y.test_MX <-  array(data = test_MX$price[-(1:datalags)], dim = c(nrow(test_MX) - datalags))
+
+###### Рекурентная нейронная сеть (RNN) ######
+# RNN_1 sigmoid, adam, mse
+model_R1 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R1 %>% compile(optimizer = 'adam',loss = 'mse',)
+model_R1 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_1_sigmoid_adam_mse = 0.0819
+
+# RNN_2 sigmoid, adam, mae
+model_R2 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R2 %>% compile(optimizer = 'adam',loss = 'mae')
+model_R2 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_2_sigmoid_adam_mae = 0.2488
+
+# RNN_3 sigmoid, adam, mape
+model_R3 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R3 %>% compile(optimizer = 'adam',loss = 'mape')
+model_R3 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_3_sigmoid_adam_mape = 96.6487
+
+# RNN_4 sigmoid, rmsprop, mse
+model_R4 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R4 %>% compile(optimizer = 'rmsprop',loss = 'mse')
+model_R4 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_4_sigmoid_rmsprop_mse = 0.0819 
+
+# RNN_5 sigmoid, rmsprop, mae
+model_R5 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R5 %>% compile(optimizer = 'rmsprop',loss = 'mae')
+model_R5 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_5_sigmoid_rmsprop_mae = 0.2489
+
+# RNN_6 sigmoid, rmsprop, mape
+model_R6 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+model_R6 %>% compile(optimizer = 'rmsprop',loss = 'mape')
+model_R6 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_6_sigmoid_rmsprop_mape = 97.3168
+
+# RNN_7 relu, adam, mse
+model_R7 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R7 %>% compile(optimizer = 'adam',loss = 'mse')
+model_R7 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_7_relu_adam_mse = 0.3191
+
+# RNN_8 relu, adam, mae
+model_R8 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R8 %>% compile(optimizer = 'adam',loss = 'mae')
+model_R8 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+ 
+RNN_8_relu_adam_mae = 0.4871
+  
+# RNN_9 relu, adam, mape
+model_R9 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R9 %>% compile(optimizer = 'adam',loss = 'mape')
+model_R9 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_9_relu_adam_mape = 100.0000
+
+# RNN_10 relu, rmsprop, mse
+model_R10 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R10 %>% compile(optimizer = 'rmsprop',loss = 'mse')
+model_R10 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_10_relu_rmsprop_mse = 0.0827
+
+# RNN_11 relu, rmsprop, mae
+model_R11 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R11 %>% compile(optimizer = 'rmsprop',loss = 'mae')
+model_R11 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_11_relu_rmsprop_mae = 0.2546
+
+# RNN_12 relu, rmsprop, mape
+model_R12 <- keras_model_sequential() %>%
+  layer_embedding(input_dim = 1000, output_dim = 50) %>%
+  layer_simple_rnn(units = 50) %>%
+  layer_dense(units = 1, activation = "relu")
+model_R12 %>% compile(optimizer = 'rmsprop',loss = 'mape')
+model_R12 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+RNN_12_relu_rmsprop_mape = 100.0000
+
+###### Sequential Model(SM) ######
+
+# SM_1 sigmoid, adam, mse
+model_S1 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S1 %>% compile(optimizer = 'adam',loss = 'mse')
+model_S1 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_1_sigmoid_adam_mse = 0.0825 
+
+# SM_2 sigmoid, adam, mae
+model_S2 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S2 %>% compile(optimizer = 'adam',loss = 'mae')
+model_S2 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_2_sigmoid_adam_mae = 0.2498
+
+# SM_3 sigmoid, adam, mape
+model_S3 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S3 %>% compile(optimizer = 'adam',loss = 'mape')
+model_S3 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_3_sigmoid_adam_mape = 307.0100
+
+# SM_4 sigmoid, rmsprop, mse
+model_S4 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S4 %>% compile(optimizer = 'rmsprop',loss = 'mse')
+model_S4 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_4_sigmoid_rmsprop_mse = 0.0829
+
+# SM_5 sigmoid, rmsprop, mae
+model_S5 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S5 %>% compile(optimizer = 'rmsprop',loss = 'mae')
+model_S5 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_5_sigmoid_rmsprop_mae = 0.2498
+
+# SM_6 sigmoid, rmsprop, mape
+model_S6 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'sigmoid') %>%
+  layer_dense(units = 5, activation = 'sigmoid')
+model_S6 %>% compile(optimizer = 'rmsprop',loss = 'mape')
+model_S6 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_6_sigmoid_rmsprop_mape = 317.9607
+
+# SM_7 relu, adam, mse
+model_S7 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S7 %>% compile(optimizer = 'adam',loss = 'mse')
+model_S7 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_7_relu_adam_mse = 0.3038
+
+# SM_8 relu, adam, mae
+model_S8 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S8 %>% compile(optimizer = 'adam',loss = 'mae')
+model_S8 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_8_relu_adam_mae = 0.4299
+
+# SM_9 relu, adam, mape
+model_S9 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S9 %>% compile(optimizer = 'adam',loss = 'mape')
+model_S9 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_9_relu_adam_mape = 133.8113
+
+# SM_10 relu, rmsprop, mse
+model_S10 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S10 %>% compile(optimizer = 'rmsprop',loss = 'mse')
+model_S10 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_10_relu_rmsprop_mse = 0.2169
+
+# SM_11 relu, rmsprop, mae
+model_S11 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S11 %>% compile(optimizer = 'rmsprop',loss = 'mae')
+model_S11 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_11_relu_rmsprop_mae = 0.4044
+
+# SM_12 relu, rmsprop, mape
+model_S12 <- keras_model_sequential() %>%
+  layer_dense(units = 1, activation = 'relu') %>%
+  layer_dense(units = 5, activation = 'relu')
+model_S12 %>% compile(optimizer = 'rmsprop',loss = 'mape')
+model_S12 %>% fit(x.train_MX, y.train_MX,  epochs = epochs,  batch_size = batch_size, validation_split = validation_split)
+
+SM_12_relu_rmsprop_mape = 99.2778
+
+###### СВОДНАЯ ТАБЛИЦА ######
+
+mse <- c(SM_1_sigmoid_adam_mse, 
+         SM_7_relu_adam_mse, 
+         SM_4_sigmoid_rmsprop_mse,
+         SM_10_relu_rmsprop_mse,
+         RNN_1_sigmoid_adam_mse,
+         RNN_7_relu_adam_mse,
+         RNN_4_sigmoid_rmsprop_mse,
+         RNN_10_relu_rmsprop_mse,
+         LSTM_1_adam_mse,
+         LSTM_4_rmsprop_mse)
+
+mae <- c(SM_2_sigmoid_adam_mae, 
+         SM_8_relu_adam_mae,
+         SM_5_sigmoid_rmsprop_mae,
+         SM_11_relu_rmsprop_mae,
+         RNN_2_sigmoid_adam_mae,
+         RNN_8_relu_adam_mae,
+         RNN_5_sigmoid_rmsprop_mae,
+         RNN_11_relu_rmsprop_mae,
+         LSTM_2_adam_mae,
+         LSTM_5_rmsprop_mae)
+
+
+mape <- c(SM_3_sigmoid_adam_mape,
+          SM_9_relu_adam_mape,
+          SM_6_sigmoid_rmsprop_mape,
+          SM_11_relu_rmsprop_mae,
+          RNN_3_sigmoid_adam_mape,
+          RNN_9_relu_adam_mape,
+          RNN_6_sigmoid_rmsprop_mape,
+          RNN_12_relu_rmsprop_mape,
+          LSTM_3_adam_mape,
+          LSTM_6_rmsprop_mape)
+
+table <- data.frame('NN' = c(rep('SM', 4), rep('RNN', 4), rep('LSTM', 2)), 
+                    'activation' = c (rep(c('sigmoid', 'relu'), 4 ), rep(c('-'), 2 )),
+                    'optimizer' = c (rep(c('adam', 'adam','rmsprop','rmsprop'), 2),'adam','rmsprop'),
+                    'MSE' = mse,
+                    'MAE' = mae,
+                    'MAPE' = mape)
+table
+
+###### ЛУЧНАЯ МОДЕЛЬ ######
+# Лучшей является модель , поскольку она имеет наименьщшие остатки 
