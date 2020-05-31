@@ -424,4 +424,11 @@ table <- data.frame('NN' = c(rep('SM', 4), rep('RNN', 4), rep('LSTM', 2)),
 table
 
 ###### ЛУЧНАЯ МОДЕЛЬ ######
-# Лучшей является модель , поскольку она имеет наименьщшие остатки 
+# Лучшей является модель LSTM_4 c оптимизацией rmsprop и mse, поскольку она имеет наименьщшие остатки (0.0495)
+
+
+##### LSTM_4 rmsprop, mse 
+#model_4 <- model %>% compile(optimizer = 'rmsprop',loss = 'mse')
+#model_4 <- model %>% fit(x.train, y.train, epochs = epochs, batch_size = batch.size)
+
+#LSTM_4_rmsprop_mse = 0.0495
